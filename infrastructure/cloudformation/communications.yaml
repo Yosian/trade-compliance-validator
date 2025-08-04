@@ -1,0 +1,156 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Trade Document Validator - Communications Infrastructure (SQS Queues)'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+    Description: Environment name for resource naming
+
+  ProjectPrefix:
+    Type: String
+    Default: tdv
+    Description: Project prefix for resource naming
+
+Resources:
+  # Vision Processing Queue
+  VisionProcessingQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${ProjectPrefix}-${Environment}-vision-processing'
+      VisibilityTimeout: 300
+      MessageRetentionPeriod: 1209600  # 14 days
+      ReceiveMessageWaitTimeSeconds: 10  # Long polling
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt VisionProcessingDLQ.Arn
+        maxReceiveCount: 3
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Sub '${ProjectPrefix}-trade-document-validator'
+        - Key: Component
+          Value: communications
+
+  # Vision Processing Dead Letter Queue
+  VisionProcessingDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${ProjectPrefix}-${Environment}-vision-processing-dlq'
+      MessageRetentionPeriod: 1209600  # 14 days
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Sub '${ProjectPrefix}-trade-document-validator'
+        - Key: Component
+          Value: communications
+
+  # Document Reader Queue (dummy processor)
+  DocReaderQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${ProjectPrefix}-${Environment}-doc-reader'
+      VisibilityTimeout: 180
+      MessageRetentionPeriod: 1209600
+      ReceiveMessageWaitTimeSeconds: 10
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt DocReaderDLQ.Arn
+        maxReceiveCount: 3
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Sub '${ProjectPrefix}-trade-document-validator'
+        - Key: Component
+          Value: communications
+
+  # Document Reader Dead Letter Queue
+  DocReaderDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${ProjectPrefix}-${Environment}-doc-reader-dlq'
+      MessageRetentionPeriod: 1209600
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Sub '${ProjectPrefix}-trade-document-validator'
+        - Key: Component
+          Value: communications
+
+  # PDF Converter Queue (dummy processor)  
+  PdfConverterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${ProjectPrefix}-${Environment}-pdf-converter'
+      VisibilityTimeout: 600  # Longer timeout for PDF processing
+      MessageRetentionPeriod: 1209600
+      ReceiveMessageWaitTimeSeconds: 10
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt PdfConverterDLQ.Arn
+        maxReceiveCount: 3
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Sub '${ProjectPrefix}-trade-document-validator'
+        - Key: Component
+          Value: communications
+
+  # PDF Converter Dead Letter Queue
+  PdfConverterDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${ProjectPrefix}-${Environment}-pdf-converter-dlq'
+      MessageRetentionPeriod: 1209600
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Sub '${ProjectPrefix}-trade-document-validator'
+        - Key: Component
+          Value: communications
+
+Outputs:
+  # Queue URLs
+  VisionProcessingQueueUrl:
+    Description: URL of the Vision Processing queue
+    Value: !Ref VisionProcessingQueue
+    Export:
+      Name: !Sub '${AWS::StackName}-VisionProcessingQueue'
+
+  DocReaderQueueUrl:
+    Description: URL of the Document Reader queue
+    Value: !Ref DocReaderQueue
+    Export:
+      Name: !Sub '${AWS::StackName}-DocReaderQueue'
+
+  PdfConverterQueueUrl:
+    Description: URL of the PDF Converter queue
+    Value: !Ref PdfConverterQueue
+    Export:
+      Name: !Sub '${AWS::StackName}-PdfConverterQueue'
+
+  # Queue ARNs
+  VisionProcessingQueueArn:
+    Description: ARN of the Vision Processing queue
+    Value: !GetAtt VisionProcessingQueue.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-VisionProcessingQueueArn'
+
+  DocReaderQueueArn:
+    Description: ARN of the Document Reader queue
+    Value: !GetAtt DocReaderQueue.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-DocReaderQueueArn'
+
+  PdfConverterQueueArn:
+    Description: ARN of the PDF Converter queue
+    Value: !GetAtt PdfConverterQueue.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-PdfConverterQueueArn'

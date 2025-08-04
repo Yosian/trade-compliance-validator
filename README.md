@@ -62,16 +62,6 @@ pip install -r requirements.txt
 aws cloudformation describe-stacks --stack-name tdv-dev-storage
 ```
 
-### Run Locally
-```bash
-# Start the API server
-python src/api/main.py
-
-# Process a sample document
-curl -X POST http://localhost:5000/api/v1/documents/process \
-  -F "file=@sample_data/letter_of_credit.pdf"
-```
-
 ## 📊 Key Features
 
 ### 🤖 AI Agent Pipeline
@@ -91,80 +81,6 @@ curl -X POST http://localhost:5000/api/v1/documents/process \
 - **Bedrock caching**: Optimize costs and response times
 - **RAG integration**: Query regulation knowledge base
 - **Vector embeddings**: Smart regulation retrieval
-
-## 🧪 Testing
-
-### Run Tests
-```bash
-# Unit tests
-python -m pytest tests/unit/
-
-# Integration tests
-python -m pytest tests/integration/
-
-# End-to-end tests
-python -m pytest tests/e2e/
-```
-
-### Sample Documents
-The `sample_data/` folder contains:
-- `letter_of_credit.pdf` - Standard LC document
-- `commercial_invoice.pdf` - Export invoice
-- `bill_of_lading.pdf` - Shipping document
-- `expected_outputs.json` - Golden dataset for evaluation
-
-## 📡 API Endpoints
-
-### Document Processing
-```bash
-POST /api/v1/documents/process
-GET  /api/v1/documents/{doc_id}/results
-GET  /api/v1/documents/{doc_id}/audit-trail
-```
-
-### Evaluation & Monitoring
-```bash
-GET  /api/v1/evaluation/pipeline-health
-GET  /api/v1/evaluation/agent-performance/{agent_name}
-POST /api/v1/evaluation/ab-test
-```
-
-### Prompt Management
-```bash
-GET  /api/v1/prompts/{agent_type}/versions
-POST /api/v1/prompts/{agent_type}/new-version
-PUT  /api/v1/prompts/{agent_type}/rollback/{version}
-```
-
-## 🏗️ Development Roadmap
-
-### ✅ Phase 1: MVP Core (Days 1-2) - **PARTIALLY COMPLETE**
-- [x] Project setup and infrastructure planning
-- [x] Modular CloudFormation architecture design  
-- [x] Storage layer deployment (DynamoDB + S3)
-- [x] PowerShell deployment scripts with error handling
-- [x] Environment configuration auto-generation
-- [ ] Basic agent pipeline implementation
-- [ ] API layer with Flask endpoints
-- [ ] Sample data testing and validation
-
-### 📊 Phase 2: Evaluation Layer (Days 3-4) - **PLANNED**
-- [ ] Communications infrastructure (SQS + Step Functions)
-- [ ] Evaluation framework with metrics tracking
-- [ ] Audit trail enhancement and compliance logging
-- [ ] Performance dashboard and monitoring
-
-### 🚀 Phase 3: Advanced AI (Days 5-6) - **PLANNED**
-- [ ] Prompt versioning and management system
-- [ ] Bedrock caching implementation for cost optimization
-- [ ] RAG vector store with regulation knowledge base
-- [ ] A/B testing framework for prompt optimization
-
-### 🏗️ Phase 4: Production Polish (Days 7-8) - **PLANNED**
-- [ ] API Gateway stack deployment
-- [ ] Monitoring and alerting stack
-- [ ] Security hardening and compliance features
-- [ ] Complete documentation and deployment guides
 
 ## 🎯 Current Status
 
@@ -202,13 +118,6 @@ Buckets: tdv-dev-docs-{accountId}-{region}
          tdv-dev-embeddings-{accountId}-{region}
          tdv-dev-model-artifacts-{accountId}-{region}
 ```
-
-## 🎯 Success Metrics
-
-- **Document processing accuracy**: > 85%
-- **Average processing time**: < 30 seconds
-- **API response time**: < 2 seconds
-- **System uptime**: > 99%
 
 ## 🔧 Configuration
 
@@ -252,14 +161,6 @@ API_PORT=5000
 - S3 bucket operations
 - CloudWatch metrics
 - Lambda execution
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit changes (`git commit -m 'Add amazing feature'`)
-4. Push to branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
 
 ## 📄 License
 
