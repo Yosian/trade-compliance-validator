@@ -1,0 +1,411 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Trade Document Validator - Storage Infrastructure (S3 + DynamoDB)'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+    Description: Environment name for resource naming
+
+  ProjectPrefix:
+    Type: String
+    Default: tdv
+    Description: Project prefix for resource naming (trade-document-validator)
+
+Resources:
+  # DynamoDB Table for Document Metadata and Results
+  DocumentsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${ProjectPrefix}-${Environment}-documents-${AWS::AccountId}-${AWS::Region}'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: document_id
+          AttributeType: S
+        - AttributeName: created_at
+          AttributeType: S
+        - AttributeName: document_type
+          AttributeType: S
+        - AttributeName: status
+          AttributeType: S
+      KeySchema:
+        - AttributeName: document_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: document-type-created-index
+          KeySchema:
+            - AttributeName: document_type
+              KeyType: HASH
+            - AttributeName: created_at
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: created-at-index
+          KeySchema:
+            - AttributeName: created_at
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+        - IndexName: status-created-index
+          KeySchema:
+            - AttributeName: status
+              KeyType: HASH
+            - AttributeName: created_at
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Sub '${ProjectPrefix}-trade-document-validator'
+        - Key: Component
+          Value: storage
+        - Key: Region
+          Value: !Ref AWS::Region
+
+  # DynamoDB Table for Audit Trail
+  AuditTrailTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${ProjectPrefix}-${Environment}-audit-trail-${AWS::AccountId}-${AWS::Region}'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: audit_id
+          AttributeType: S
+        - AttributeName: timestamp
+          AttributeType: S
+        - AttributeName: document_id
+          AttributeType: S
+        - AttributeName: agent_name
+          AttributeType: S
+      KeySchema:
+        - AttributeName: audit_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: document-timestamp-index
+          KeySchema:
+            - AttributeName: document_id
+              KeyType: HASH
+            - AttributeName: timestamp
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: agent-timestamp-index
+          KeySchema:
+            - AttributeName: agent_name
+              KeyType: HASH
+            - AttributeName: timestamp
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: timestamp-index
+          KeySchema:
+            - AttributeName: timestamp
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Sub '${ProjectPrefix}-trade-document-validator'
+        - Key: Component
+          Value: storage
+        - Key: Region
+          Value: !Ref AWS::Region
+
+  # DynamoDB Table for Prompt Versions
+  PromptVersionsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${ProjectPrefix}-${Environment}-prompt-versions-${AWS::AccountId}-${AWS::Region}'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: agent_type
+          AttributeType: S
+        - AttributeName: version
+          AttributeType: S
+        - AttributeName: created_at
+          AttributeType: S
+      KeySchema:
+        - AttributeName: agent_type
+          KeyType: HASH
+        - AttributeName: version
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: agent-created-index
+          KeySchema:
+            - AttributeName: agent_type
+              KeyType: HASH
+            - AttributeName: created_at
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Sub '${ProjectPrefix}-trade-document-validator'
+        - Key: Component
+          Value: storage
+        - Key: Region
+          Value: !Ref AWS::Region
+
+  # S3 Bucket for Document Storage
+  DocumentsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${ProjectPrefix}-${Environment}-docs-${AWS::AccountId}-${AWS::Region}'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+            BucketKeyEnabled: true
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldVersions
+            Status: Enabled
+            NoncurrentVersionExpirationInDays: 30
+          - Id: DeleteIncompleteMultipartUploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+          - Id: ArchiveOldDocuments
+            Status: Enabled
+            Transitions:
+              - TransitionInDays: 30
+                StorageClass: STANDARD_IA
+              - TransitionInDays: 90
+                StorageClass: GLACIER
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Sub '${ProjectPrefix}-trade-document-validator'
+        - Key: Component
+          Value: storage
+        - Key: Region
+          Value: !Ref AWS::Region
+
+  # S3 Bucket for Prompts Storage
+  PromptsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${ProjectPrefix}-${Environment}-prompts-${AWS::AccountId}-${AWS::Region}'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+            BucketKeyEnabled: true
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Sub '${ProjectPrefix}-trade-document-validator'
+        - Key: Component
+          Value: storage
+        - Key: Region
+          Value: !Ref AWS::Region
+
+  # S3 Bucket for Embeddings/Vector Store
+  EmbeddingsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${ProjectPrefix}-${Environment}-embeddings-${AWS::AccountId}-${AWS::Region}'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+            BucketKeyEnabled: true
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Sub '${ProjectPrefix}-trade-document-validator'
+        - Key: Component
+          Value: storage
+        - Key: Region
+          Value: !Ref AWS::Region
+
+  # S3 Bucket for Model Artifacts and Cached Results
+  ModelArtifactsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${ProjectPrefix}-${Environment}-model-artifacts-${AWS::AccountId}-${AWS::Region}'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+            BucketKeyEnabled: true
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldArtifacts
+            Status: Enabled
+            ExpirationInDays: 90
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Sub '${ProjectPrefix}-trade-document-validator'
+        - Key: Component
+          Value: storage
+        - Key: Region
+          Value: !Ref AWS::Region
+
+Outputs:
+  # Stack Information
+  StackName:
+    Description: Name of the CloudFormation stack
+    Value: !Ref AWS::StackName
+    Export:
+      Name: !Sub '${AWS::StackName}-StackName'
+
+  # DynamoDB Tables
+  DocumentsTableName:
+    Description: Name of the Documents DynamoDB table
+    Value: !Ref DocumentsTable
+    Export:
+      Name: !Sub '${AWS::StackName}-DocumentsTable'
+
+  DocumentsTableArn:
+    Description: ARN of the Documents DynamoDB table
+    Value: !GetAtt DocumentsTable.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-DocumentsTableArn'
+
+  AuditTrailTableName:
+    Description: Name of the Audit Trail DynamoDB table
+    Value: !Ref AuditTrailTable
+    Export:
+      Name: !Sub '${AWS::StackName}-AuditTrailTable'
+
+  AuditTrailTableArn:
+    Description: ARN of the Audit Trail DynamoDB table
+    Value: !GetAtt AuditTrailTable.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-AuditTrailTableArn'
+
+  PromptVersionsTableName:
+    Description: Name of the Prompt Versions DynamoDB table
+    Value: !Ref PromptVersionsTable
+    Export:
+      Name: !Sub '${AWS::StackName}-PromptVersionsTable'
+
+  PromptVersionsTableArn:
+    Description: ARN of the Prompt Versions DynamoDB table
+    Value: !GetAtt PromptVersionsTable.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-PromptVersionsTableArn'
+
+  # S3 Buckets
+  DocumentsBucketName:
+    Description: Name of the Documents S3 bucket
+    Value: !Ref DocumentsBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-DocumentsBucket'
+
+  DocumentsBucketArn:
+    Description: ARN of the Documents S3 bucket
+    Value: !GetAtt DocumentsBucket.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-DocumentsBucketArn'
+
+  PromptsBucketName:
+    Description: Name of the Prompts S3 bucket
+    Value: !Ref PromptsBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-PromptsBucket'
+
+  PromptsBucketArn:
+    Description: ARN of the Prompts S3 bucket
+    Value: !GetAtt PromptsBucket.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-PromptsBucketArn'
+
+  EmbeddingsBucketName:
+    Description: Name of the Embeddings S3 bucket
+    Value: !Ref EmbeddingsBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-EmbeddingsBucket'
+
+  EmbeddingsBucketArn:
+    Description: ARN of the Embeddings S3 bucket
+    Value: !GetAtt EmbeddingsBucket.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-EmbeddingsBucketArn'
+
+  ModelArtifactsBucketName:
+    Description: Name of the Model Artifacts S3 bucket
+    Value: !Ref ModelArtifactsBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-ModelArtifactsBucket'
+
+  ModelArtifactsBucketArn:
+    Description: ARN of the Model Artifacts S3 bucket
+    Value: !GetAtt ModelArtifactsBucket.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-ModelArtifactsBucketArn'
+
+  # Deployment Information
+  Region:
+    Description: AWS Region where resources are deployed
+    Value: !Ref AWS::Region
+    Export:
+      Name: !Sub '${AWS::StackName}-Region'
+
+  AccountId:
+    Description: AWS Account ID where resources are deployed
+    Value: !Ref AWS::AccountId
+    Export:
+      Name: !Sub '${AWS::StackName}-AccountId'
+
+  Environment:
+    Description: Environment name
+    Value: !Ref Environment
+    Export:
+      Name: !Sub '${AWS::StackName}-Environment'
