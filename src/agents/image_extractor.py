@@ -175,7 +175,7 @@ def smart_classify_document(image_base64, document_id, audit_id):
     """
     
     # Load classifier prompt ARN
-    classifier_prompt_arn = load_prompt_arn('classifier')
+    classifier_prompt_arn = load_prompt_content('classifier')
     
     # Stage 1: Fast & cheap classification with Haiku
     log_audit_event(audit_id, document_id, 'CLASSIFICATION_STAGE1_STARTED', {
@@ -245,7 +245,7 @@ def classify_with_bedrock_prompt(image_base64, prompt_arn, model_id, document_id
         
         # Use Bedrock Prompt Management with Converse API
         response = bedrock.converse(
-            modelId=prompt_arn,  # Use prompt ARN as model ID
+            modelId=CLASSIFICATION_MODELS['cheap'],  # Use actual model ID
             messages=[
                 {
                     "role": "user",
@@ -255,6 +255,9 @@ def classify_with_bedrock_prompt(image_base64, prompt_arn, model_id, document_id
                                 "format": "jpeg",
                                 "source": {"bytes": base64.b64decode(image_base64)}
                             }
+                        },
+                        {
+                            "text": prompt_content  # Add the prompt as text
                         }
                     ]
                 }
@@ -303,7 +306,7 @@ def extract_with_prompt_management(image_base64, document_type, document_id, aud
     """
     
     # Load specialized prompt ARN for document type
-    extraction_prompt_arn = load_prompt_arn(document_type)
+    extraction_prompt_arn = load_prompt_content(document_type)
     
     try:
         log_audit_event(audit_id, document_id, 'BEDROCK_EXTRACTION_STARTED', {
@@ -368,19 +371,19 @@ def extract_with_prompt_management(image_base64, document_type, document_id, aud
         log_audit_event(audit_id, document_id, 'BEDROCK_EXTRACTION_FAILED', {'error': error_msg})
         raise Exception(error_msg)
 
-def load_prompt_arn(document_type):
+def load_prompt_content(document_type):
     """
-    Load prompt ARN from deployment artifacts (Infrastructure-as-Code approach)
+    Load prompt content from deployment artifacts (Infrastructure-as-Code approach)
     """
     
-    # Build path to prompt ARN file
+    # Build path to prompt file
     prompt_file_path = f"/opt/prompts/{document_type}_prompt_arn.txt"
     
     try:
         with open(prompt_file_path, 'r') as f:
-            prompt_arn = f.read().strip()
-            logger.info(f"Loaded prompt ARN for {document_type}: {prompt_arn}")
-            return prompt_arn
+            prompt_content = f.read().strip()
+            logger.info(f"Loaded prompt content for {document_type}: {len(prompt_content)} characters")
+            return prompt_content
     except FileNotFoundError:
         logger.warning(f"No specialized prompt found for {document_type}, using generic")
         # Fallback to generic prompt
@@ -388,8 +391,8 @@ def load_prompt_arn(document_type):
             with open("/opt/prompts/generic_prompt_arn.txt", 'r') as f:
                 return f.read().strip()
         except FileNotFoundError:
-            logger.error("No generic prompt ARN found - deployment issue")
-            raise Exception(f"No prompt ARN available for document type: {document_type}")
+            logger.error("No generic prompt found - deployment issue")
+            raise Exception(f"No prompt available for document type: {document_type}")
 
 def calculate_processing_costs(classification_result, extraction_result):
     """

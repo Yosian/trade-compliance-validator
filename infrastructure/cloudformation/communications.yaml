@@ -17,6 +17,39 @@ Parameters:
     Description: Project prefix for resource naming
 
 Resources:
+  # Document Upload Queue - Entry point that triggers file selector
+  DocumentUploadQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${ProjectPrefix}-${Environment}-document-upload'
+      VisibilityTimeout: 120
+      MessageRetentionPeriod: 1209600  # 14 days
+      ReceiveMessageWaitTimeSeconds: 10  # Long polling
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt DocumentUploadDLQ.Arn
+        maxReceiveCount: 3
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Sub '${ProjectPrefix}-trade-document-validator'
+        - Key: Component
+          Value: communications
+
+  # Document Upload Dead Letter Queue
+  DocumentUploadDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${ProjectPrefix}-${Environment}-document-upload-dlq'
+      MessageRetentionPeriod: 1209600  # 14 days
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Sub '${ProjectPrefix}-trade-document-validator'
+        - Key: Component
+          Value: communications
+
   # Vision Processing Queue
   VisionProcessingQueue:
     Type: AWS::SQS::Queue
@@ -118,6 +151,12 @@ Resources:
 
 Outputs:
   # Queue URLs
+  DocumentUploadQueueUrl:
+    Description: URL of the Document Upload queue (entry point)
+    Value: !Ref DocumentUploadQueue
+    Export:
+      Name: !Sub '${AWS::StackName}-DocumentUploadQueue'
+
   VisionProcessingQueueUrl:
     Description: URL of the Vision Processing queue
     Value: !Ref VisionProcessingQueue
@@ -137,6 +176,12 @@ Outputs:
       Name: !Sub '${AWS::StackName}-PdfConverterQueue'
 
   # Queue ARNs
+  DocumentUploadQueueArn:
+    Description: ARN of the Document Upload queue (entry point)
+    Value: !GetAtt DocumentUploadQueue.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-DocumentUploadQueueArn'
+
   VisionProcessingQueueArn:
     Description: ARN of the Vision Processing queue
     Value: !GetAtt VisionProcessingQueue.Arn
