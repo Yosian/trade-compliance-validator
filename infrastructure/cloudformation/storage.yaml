@@ -168,6 +168,42 @@ Resources:
         - Key: Region
           Value: !Ref AWS::Region
 
+  # DynamoDB table for API data caching
+  RegulatoryApiCacheTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${ProjectPrefix}-${Environment}-regulatory-api-cache-${AWS::AccountId}-${AWS::Region}'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: api_source
+          AttributeType: S
+        - AttributeName: cache_key
+          AttributeType: S
+        - AttributeName: last_updated
+          AttributeType: S
+      KeySchema:
+        - AttributeName: api_source
+          KeyType: HASH
+        - AttributeName: cache_key
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: last-updated-index
+          KeySchema:
+            - AttributeName: api_source
+              KeyType: HASH
+            - AttributeName: last_updated
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      Tags:
+        - Key: Purpose
+          Value: API-response-cache
+        - Key: Component
+          Value: regulatory-data-enrichment
+
   # S3 Bucket for Document Storage
   DocumentsBucket:
     Type: AWS::S3::Bucket
@@ -341,6 +377,18 @@ Outputs:
     Value: !GetAtt PromptVersionsTable.Arn
     Export:
       Name: !Sub '${AWS::StackName}-PromptVersionsTableArn'
+
+  RegulatoryApiCacheTableName:
+    Description: Name of the Regulatory API Cache DynamoDB table
+    Value: !Ref RegulatoryApiCacheTable
+    Export:
+      Name: !Sub '${AWS::StackName}-RegulatoryApiCacheTable'
+
+  RegulatoryApiCacheTableArn:
+    Description: ARN of the Regulatory API Cache DynamoDB table
+    Value: !GetAtt RegulatoryApiCacheTable.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-RegulatoryApiCacheTableArn'
 
   # S3 Buckets
   DocumentsBucketName:

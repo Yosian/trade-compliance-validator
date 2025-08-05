@@ -306,6 +306,13 @@ try {
         --query "Stacks[0].Outputs[?OutputKey=='PromptVersionsTableName'].OutputValue" `
         --output text).Trim()
 
+    # Fixed the query to match the actual output key name
+    $RegulatoryApiCacheTable = (aws cloudformation describe-stacks `
+        --stack-name $StackName `
+        --region $Region `
+        --query "Stacks[0].Outputs[?OutputKey=='RegulatoryApiCacheTableName'].OutputValue" `
+        --output text).Trim()
+
     $DocumentsBucket = (aws cloudformation describe-stacks `
         --stack-name $StackName `
         --region $Region `
@@ -330,9 +337,15 @@ try {
         --query "Stacks[0].Outputs[?OutputKey=='ModelArtifactsBucketName'].OutputValue" `
         --output text).Trim()
 
-    # Verify we got the values
+    # Verify we got the essential values
     if (-not $DocumentsTable -or -not $DocumentsBucket) {
         throw "Failed to extract required resource names from stack outputs"
+    }
+    
+    # RegulatoryApiCacheTable is optional for backward compatibility
+    if (-not $RegulatoryApiCacheTable) {
+        Write-Warning "RegulatoryApiCacheTable not found - may be an older stack version"
+        $RegulatoryApiCacheTable = "not-available"
     }
 }
 catch {
@@ -367,6 +380,7 @@ ENVIRONMENT=$Environment
 DOCUMENTS_TABLE=$DocumentsTable
 AUDIT_TABLE=$AuditTable
 PROMPT_VERSIONS_TABLE=$PromptVersionsTable
+REGULATORY_API_CACHE_TABLE=$RegulatoryApiCacheTable
 
 # S3 Buckets
 DOCUMENTS_BUCKET=$DocumentsBucket
@@ -522,6 +536,7 @@ Write-Info "Stack resources:"
 Write-Info "  Documents Table: $DocumentsTable"
 Write-Info "  Audit Table: $AuditTable"
 Write-Info "  Prompt Versions Table: $PromptVersionsTable"
+Write-Info "  Regulatory API Cache Table: $RegulatoryApiCacheTable"
 Write-Info "  Documents Bucket: $DocumentsBucket"
 Write-Info "  Prompts Bucket: $PromptsBucket"
 Write-Info "  Embeddings Bucket: $EmbeddingsBucket"
