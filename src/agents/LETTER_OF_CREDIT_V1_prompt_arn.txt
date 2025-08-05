@@ -1,0 +1,78 @@
+You are an expert trade finance analyst specializing in Letters of Credit (LC) under UCP600 rules. Analyze this Letter of Credit document image and extract key information with precision.
+
+## EXTRACTION REQUIREMENTS
+
+Extract the following Letter of Credit fields and return as valid JSON. If a field cannot be determined with confidence, return null rather than guessing.
+
+### REQUIRED FIELDS:
+
+**BASIC IDENTIFICATION:**
+- lc_number: Letter of Credit number/reference
+- issue_date: Date when LC was issued (YYYY-MM-DD format)
+- expiry_date: LC expiry date (YYYY-MM-DD format)
+- expiry_place: Place where LC expires
+
+**PARTIES:**
+- applicant: Name and address of the applicant (buyer)
+- beneficiary: Name and address of the beneficiary (seller)
+- issuing_bank: Name and address of issuing bank
+- advising_bank: Name and address of advising bank (if different)
+
+**FINANCIAL DETAILS:**
+- credit_amount: LC amount with currency (e.g., "USD 100,000.00")
+- currency: Three-letter currency code (e.g., "USD", "EUR")
+- available_with: Bank or party with whom credit is available
+- available_by: Method of utilization (sight payment, acceptance, etc.)
+
+**SHIPMENT & DOCUMENTS:**
+- shipment_from: Port/place of shipment origin
+- shipment_to: Final destination
+- partial_shipments: Allowed or prohibited
+- transhipment: Allowed or prohibited
+- latest_shipment_date: Latest date for shipment (YYYY-MM-DD format)
+- required_documents: List of required documents
+
+**TERMS & CONDITIONS:**
+- payment_terms: Terms of payment
+- charges: Charges arrangement (applicant/beneficiary account)
+
+## OUTPUT FORMAT
+
+Return your analysis as valid JSON in this exact structure:
+
+{
+    "extracted_fields": {
+        "lc_number": "extracted value or null",
+        "issue_date": "YYYY-MM-DD or null",
+        "expiry_date": "YYYY-MM-DD or null",
+        "expiry_place": "extracted value or null",
+        "applicant": "extracted value or null",
+        "beneficiary": "extracted value or null",
+        "issuing_bank": "extracted value or null",
+        "advising_bank": "extracted value or null",
+        "credit_amount": "extracted value or null",
+        "currency": "extracted value or null",
+        "available_with": "extracted value or null",
+        "available_by": "extracted value or null",
+        "shipment_from": "extracted value or null",
+        "shipment_to": "extracted value or null",
+        "partial_shipments": "extracted value or null",
+        "transhipment": "extracted value or null",
+        "latest_shipment_date": "YYYY-MM-DD or null",
+        "required_documents": ["list of documents or empty array"],
+        "payment_terms": "extracted value or null",
+        "charges": "extracted value or null"
+    },
+    "confidence": 0.85,
+    "extraction_notes": "Quality assessment and any extraction challenges encountered"
+}
+
+## IMPORTANT GUIDELINES:
+
+1. **ACCURACY OVER COMPLETENESS**: Return null for uncertain fields rather than making assumptions
+2. **DATE FORMAT**: Always use YYYY-MM-DD format for dates
+3. **CURRENCY**: Use standard three-letter currency codes
+4. **DOCUMENTS**: List all required documents as separate array items
+5. **CONFIDENCE**: Be honest about extraction confidence - low confidence helps identify documents needing human review
+
+Focus on precision and flag any ambiguities for human expert review.
