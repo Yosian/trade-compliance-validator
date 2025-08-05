@@ -5,6 +5,7 @@ import uuid
 import os
 from datetime import datetime, timezone
 import logging
+from decimal import Decimal
 from botocore.exceptions import ClientError
 
 # Configure logging
@@ -28,77 +29,35 @@ CLASSIFICATION_MODELS = {
 EXTRACTION_MODEL = 'anthropic.claude-3-sonnet-20240229-v1:0'
 
 # Confidence threshold for classification escalation
-CLASSIFICATION_CONFIDENCE_THRESHOLD = 0.8
+CLASSIFICATION_CONFIDENCE_THRESHOLD = Decimal('0.8')
 
-# Prompt content - embedded for demo (in production, load from S3 or deployment package)
-CLASSIFIER_PROMPT = """You are a trade finance document classifier. Analyze this document image and classify it into one of the following trade finance document categories.
+def convert_floats_to_decimal(obj):
+    """
+    Recursively convert float values to Decimal for DynamoDB compatibility
+    """
+    if isinstance(obj, float):
+        return Decimal(str(obj))
+    elif isinstance(obj, dict):
+        return {key: convert_floats_to_decimal(value) for key, value in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_floats_to_decimal(item) for item in obj]
+    else:
+        return obj
 
-## DOCUMENT TYPES:
+# Prompt content - in local for demo (in production, will use AWS prompt management)
+# Load prompts from files
+try:
+    with open('src/prompts/classifier_prompt_arn_V1.txt', 'r', encoding='utf-8') as f:
+        CLASSIFIER_PROMPT = f.read().strip()
+except FileNotFoundError:
+    raise Exception("Classifier prompt file not found: src/prompts/classifier_prompt_arn_V1.txt")
 
-**LETTER_OF_CREDIT**: Letters of credit, documentary credits, LC amendments, standby letters of credit
-- Look for: LC number, issuing bank, beneficiary, applicant, credit amount, UCP600 references
+try:
+    with open('src/prompts/LETTER_OF_CREDIT_V1_prompt_arn.txt', 'r', encoding='utf-8') as f:
+        LETTER_OF_CREDIT_PROMPT = f.read().strip()
+except FileNotFoundError:
+    raise Exception("LC prompt file not found: src/prompts/LETTER_OF_CREDIT_V1_prompt_arn.txt")
 
-**COMMERCIAL_INVOICE**: Commercial invoices, proforma invoices, tax invoices
-- Look for: Invoice number, seller/buyer details, itemized goods, total amounts, payment terms
-
-**BILL_OF_LADING**: Bills of lading, sea waybills, airway bills, shipping documents
-- Look for: Vessel/flight details, consignee, shipper, cargo description, ports of loading/discharge
-
-**PACKING_LIST**: Packing lists, shipping manifests, cargo manifests
-- Look for: Detailed item descriptions, quantities, weights, packaging details, container information
-
-**CERTIFICATE**: Certificates of origin, inspection certificates, quality certificates, insurance certificates
-- Look for: Certification authority, certificate number, goods covered, validity dates
-
-**OTHER**: Any document that doesn't clearly fit the above categories
-
-Return your classification as valid JSON in this exact structure:
-
-{
-    "document_type": "DOCUMENT_TYPE_HERE",
-    "confidence": 0.85,
-    "complexity_score": 0.6,
-    "reasoning": "Brief explanation of classification decision",
-    "key_indicators": ["list", "of", "key", "terms", "found"],
-    "alternative_types": ["possible", "alternative", "classifications"]
-}
-
-Focus on accuracy over speed. Better to be uncertain and trigger expert review than to misclassify."""
-
-LETTER_OF_CREDIT_PROMPT = """You are an expert trade finance analyst specializing in Letters of Credit (LC) under UCP600 rules. Analyze this Letter of Credit document image and extract key information with precision.
-
-Extract the following Letter of Credit fields and return as valid JSON. If a field cannot be determined with confidence, return null rather than guessing.
-
-Return your analysis as valid JSON in this exact structure:
-
-{
-    "extracted_fields": {
-        "lc_number": "extracted value or null",
-        "issue_date": "YYYY-MM-DD or null",
-        "expiry_date": "YYYY-MM-DD or null",
-        "expiry_place": "extracted value or null",
-        "applicant": "extracted value or null",
-        "beneficiary": "extracted value or null",
-        "issuing_bank": "extracted value or null",
-        "advising_bank": "extracted value or null",
-        "credit_amount": "extracted value or null",
-        "currency": "extracted value or null",
-        "available_with": "extracted value or null",
-        "available_by": "extracted value or null",
-        "shipment_from": "extracted value or null",
-        "shipment_to": "extracted value or null",
-        "partial_shipments": "extracted value or null",
-        "transhipment": "extracted value or null",
-        "latest_shipment_date": "YYYY-MM-DD or null",
-        "required_documents": ["list of documents or empty array"],
-        "payment_terms": "extracted value or null",
-        "charges": "extracted value or null"
-    },
-    "confidence": 0.85,
-    "extraction_notes": "Quality assessment and any extraction challenges encountered"
-}
-
-Focus on precision and flag any ambiguities for human expert review."""
 
 def lambda_handler(event, context):
     """
@@ -353,16 +312,16 @@ def classify_with_bedrock(image_base64, prompt_content, model_id, document_id, a
             classification_data = json.loads(response_text)
             return {
                 'document_type': classification_data.get('document_type', 'OTHER'),
-                'confidence': classification_data.get('confidence', 0.5),
-                'complexity_score': classification_data.get('complexity_score', 0.5),
+                'confidence': Decimal(str(classification_data.get('confidence', 0.5))),
+                'complexity_score': Decimal(str(classification_data.get('complexity_score', 0.5))),
                 'raw_response': response_text
             }
         except json.JSONDecodeError:
             print("Classification returned non-JSON response")
             return {
                 'document_type': 'OTHER',
-                'confidence': 0.3,
-                'complexity_score': 0.5,
+                'confidence': Decimal('0.3'),
+                'complexity_score': Decimal('0.5'),
                 'raw_response': response_text
             }
             
@@ -426,7 +385,7 @@ def extract_with_specialized_prompt(image_base64, document_type, document_id, au
             extraction_data = json.loads(response_text)
             return {
                 'extracted_fields': extraction_data.get('extracted_fields', {}),
-                'confidence': extraction_data.get('confidence', 0.5),
+                'confidence': Decimal(str(extraction_data.get('confidence', 0.5))),
                 'extraction_notes': extraction_data.get('extraction_notes', ''),
                 'raw_response': response_text
             }
@@ -434,7 +393,7 @@ def extract_with_specialized_prompt(image_base64, document_type, document_id, au
             print("Extraction returned non-JSON response")
             return {
                 'extracted_fields': {},
-                'confidence': 0.3,
+                'confidence': Decimal('0.3'),
                 'extraction_notes': 'Response was not valid JSON',
                 'raw_response': response_text
             }
@@ -467,15 +426,15 @@ def calculate_processing_costs(classification_result, extraction_result):
     
     # Rough cost estimates (actual costs vary by region and time)
     model_costs = {
-        'anthropic.claude-3-haiku-20240307-v1:0': {'input': 0.00025, 'output': 0.00125},
-        'anthropic.claude-3-sonnet-20240229-v1:0': {'input': 0.003, 'output': 0.015}
+        'anthropic.claude-3-haiku-20240307-v1:0': {'input': Decimal('0.00025'), 'output': Decimal('0.00125')},
+        'anthropic.claude-3-sonnet-20240229-v1:0': {'input': Decimal('0.003'), 'output': Decimal('0.015')}
     }
     
     classification_model = classification_result.get('model_used', CLASSIFICATION_MODELS['cheap'])
     
     # Estimate tokens (rough approximation for business intelligence)
-    estimated_input_tokens = 1000  # Typical image + prompt
-    estimated_output_tokens = 200   # Typical classification + extraction response
+    estimated_input_tokens = Decimal('1000')  # Typical image + prompt
+    estimated_output_tokens = Decimal('200')   # Typical classification + extraction response
     
     classification_cost = (
         estimated_input_tokens / 1000 * model_costs[classification_model]['input'] +
@@ -488,9 +447,9 @@ def calculate_processing_costs(classification_result, extraction_result):
     )
     
     return {
-        'classification_cost_estimate': round(classification_cost, 6),
-        'extraction_cost_estimate': round(extraction_cost, 6),
-        'total_estimated_cost': round(classification_cost + extraction_cost, 6),
+        'classification_cost_estimate': classification_cost.quantize(Decimal('0.000001')),
+        'extraction_cost_estimate': extraction_cost.quantize(Decimal('0.000001')),
+        'total_estimated_cost': (classification_cost + extraction_cost).quantize(Decimal('0.000001')),
         'cost_optimization_benefit': 'Used cheap classification model' if not classification_result.get('escalated', False) else 'Escalated for accuracy'
     }
 
@@ -503,11 +462,11 @@ def assess_image_quality(image_data):
     file_size = len(image_data)
     
     if file_size < 50000:  # < 50KB
-        return 0.3  # Likely low quality
+        return Decimal('0.3')  # Likely low quality
     elif file_size > 500000:  # > 500KB
-        return 0.9  # Likely high quality
+        return Decimal('0.9')  # Likely high quality
     else:
-        return 0.6  # Medium quality
+        return Decimal('0.6')  # Medium quality
     
 def store_document_results_enhanced(document_id, bucket, key, result, audit_id):
     """
@@ -543,6 +502,9 @@ def store_document_results_enhanced(document_id, bucket, key, result, audit_id):
             # TTL: 90 days from now
             'ttl': int((datetime.now(timezone.utc).timestamp()) + (90 * 24 * 60 * 60))
         }
+        
+        # Convert all float values to Decimal for DynamoDB compatibility
+        document_record = convert_floats_to_decimal(document_record)
         
         documents_table.put_item(Item=document_record)
         
