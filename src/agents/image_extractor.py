@@ -30,12 +30,82 @@ EXTRACTION_MODEL = 'anthropic.claude-3-sonnet-20240229-v1:0'
 # Confidence threshold for classification escalation
 CLASSIFICATION_CONFIDENCE_THRESHOLD = 0.8
 
+# Prompt content - embedded for demo (in production, load from S3 or deployment package)
+CLASSIFIER_PROMPT = """You are a trade finance document classifier. Analyze this document image and classify it into one of the following trade finance document categories.
+
+## DOCUMENT TYPES:
+
+**LETTER_OF_CREDIT**: Letters of credit, documentary credits, LC amendments, standby letters of credit
+- Look for: LC number, issuing bank, beneficiary, applicant, credit amount, UCP600 references
+
+**COMMERCIAL_INVOICE**: Commercial invoices, proforma invoices, tax invoices
+- Look for: Invoice number, seller/buyer details, itemized goods, total amounts, payment terms
+
+**BILL_OF_LADING**: Bills of lading, sea waybills, airway bills, shipping documents
+- Look for: Vessel/flight details, consignee, shipper, cargo description, ports of loading/discharge
+
+**PACKING_LIST**: Packing lists, shipping manifests, cargo manifests
+- Look for: Detailed item descriptions, quantities, weights, packaging details, container information
+
+**CERTIFICATE**: Certificates of origin, inspection certificates, quality certificates, insurance certificates
+- Look for: Certification authority, certificate number, goods covered, validity dates
+
+**OTHER**: Any document that doesn't clearly fit the above categories
+
+Return your classification as valid JSON in this exact structure:
+
+{
+    "document_type": "DOCUMENT_TYPE_HERE",
+    "confidence": 0.85,
+    "complexity_score": 0.6,
+    "reasoning": "Brief explanation of classification decision",
+    "key_indicators": ["list", "of", "key", "terms", "found"],
+    "alternative_types": ["possible", "alternative", "classifications"]
+}
+
+Focus on accuracy over speed. Better to be uncertain and trigger expert review than to misclassify."""
+
+LETTER_OF_CREDIT_PROMPT = """You are an expert trade finance analyst specializing in Letters of Credit (LC) under UCP600 rules. Analyze this Letter of Credit document image and extract key information with precision.
+
+Extract the following Letter of Credit fields and return as valid JSON. If a field cannot be determined with confidence, return null rather than guessing.
+
+Return your analysis as valid JSON in this exact structure:
+
+{
+    "extracted_fields": {
+        "lc_number": "extracted value or null",
+        "issue_date": "YYYY-MM-DD or null",
+        "expiry_date": "YYYY-MM-DD or null",
+        "expiry_place": "extracted value or null",
+        "applicant": "extracted value or null",
+        "beneficiary": "extracted value or null",
+        "issuing_bank": "extracted value or null",
+        "advising_bank": "extracted value or null",
+        "credit_amount": "extracted value or null",
+        "currency": "extracted value or null",
+        "available_with": "extracted value or null",
+        "available_by": "extracted value or null",
+        "shipment_from": "extracted value or null",
+        "shipment_to": "extracted value or null",
+        "partial_shipments": "extracted value or null",
+        "transhipment": "extracted value or null",
+        "latest_shipment_date": "YYYY-MM-DD or null",
+        "required_documents": ["list of documents or empty array"],
+        "payment_terms": "extracted value or null",
+        "charges": "extracted value or null"
+    },
+    "confidence": 0.85,
+    "extraction_notes": "Quality assessment and any extraction challenges encountered"
+}
+
+Focus on precision and flag any ambiguities for human expert review."""
+
 def lambda_handler(event, context):
     """
     Enhanced Claude Vision Lambda with two-stage processing
     
     Stage 1: Smart document classification (cost-optimized)
-    Stage 2: Specialized extraction using Bedrock Prompt Management
+    Stage 2: Specialized extraction using document-specific prompts
     """
     
     # Initialize audit tracking
@@ -50,10 +120,12 @@ def lambda_handler(event, context):
             # Extract file information
             bucket = message_body['bucket']
             key = message_body['key']
-            file_extension = message_body['file_extension']
+            file_extension = message_body.get('file_extension', 'unknown')
             
             # Generate document ID
             document_id = f"doc_{uuid.uuid4().hex[:12]}"
+            
+            print(f"Processing document: {key} (ID: {document_id})")
             
             # Log processing start
             log_audit_event(audit_id, document_id, 'PROCESSING_STARTED', {
@@ -61,11 +133,10 @@ def lambda_handler(event, context):
                 'key': key,
                 'file_extension': file_extension,
                 'lambda_request_id': context.aws_request_id,
-                'processing_strategy': 'two_stage_with_prompt_management'
+                'processing_strategy': 'two_stage_with_embedded_prompts'
             })
             
             # Download and process image
-            logger.info(f"Processing document: {key}")
             result = process_document_enhanced(bucket, key, document_id, audit_id)
             
             # Store results with training metadata
@@ -79,7 +150,7 @@ def lambda_handler(event, context):
                 'total_cost_estimate': result.get('processing_costs', {}).get('total_estimated_cost')
             })
             
-            logger.info(f"Successfully processed document {document_id}")
+            print(f"Successfully processed document {document_id}")
         
         return {
             'statusCode': 200,
@@ -94,7 +165,7 @@ def lambda_handler(event, context):
     except Exception as e:
         # Log error with full context
         error_msg = str(e)
-        logger.error(f"Error processing document: {error_msg}")
+        print(f"Error processing document: {error_msg}")
         
         if document_id and audit_id:
             log_audit_event(audit_id, document_id, 'PROCESSING_FAILED', {
@@ -113,7 +184,7 @@ def lambda_handler(event, context):
 
 def process_document_enhanced(bucket, key, document_id, audit_id):
     """
-    Enhanced document processing with two-stage classification and prompt management
+    Enhanced document processing with two-stage classification and extraction
     """
     
     try:
@@ -129,11 +200,13 @@ def process_document_enhanced(bucket, key, document_id, audit_id):
             'image_size_base64': len(image_base64)
         })
         
+        print(f"Downloaded image: {len(image_data)} bytes")
+        
         # Stage 1: Smart document classification (cost-optimized)
         classification_result = smart_classify_document(image_base64, document_id, audit_id)
         
-        # Stage 2: Specialized extraction using Bedrock Prompt Management
-        extraction_result = extract_with_prompt_management(
+        # Stage 2: Specialized extraction based on document type
+        extraction_result = extract_with_specialized_prompt(
             image_base64, 
             classification_result['document_type'], 
             document_id, 
@@ -149,7 +222,6 @@ def process_document_enhanced(bucket, key, document_id, audit_id):
             'extracted_fields': extraction_result.get('extracted_fields', {}),
             'extraction_confidence': extraction_result.get('confidence', 0.0),
             'extraction_notes': extraction_result.get('extraction_notes', ''),
-            'prompt_arn_used': extraction_result.get('prompt_arn_used'),
             'processing_costs': calculate_processing_costs(classification_result, extraction_result),
             'training_metadata': {
                 'image_quality_score': assess_image_quality(image_data),
@@ -174,18 +246,15 @@ def smart_classify_document(image_base64, document_id, audit_id):
     Two-stage document classification for cost optimization
     """
     
-    # Load classifier prompt ARN
-    classifier_prompt_arn = load_prompt_content('classifier')
-    
     # Stage 1: Fast & cheap classification with Haiku
     log_audit_event(audit_id, document_id, 'CLASSIFICATION_STAGE1_STARTED', {
         'model': CLASSIFICATION_MODELS['cheap'],
         'strategy': 'cost_optimized_classification'
     })
     
-    stage1_result = classify_with_bedrock_prompt(
+    stage1_result = classify_with_bedrock(
         image_base64, 
-        classifier_prompt_arn, 
+        CLASSIFIER_PROMPT,
         CLASSIFICATION_MODELS['cheap'],
         document_id,
         audit_id
@@ -212,9 +281,9 @@ def smart_classify_document(image_base64, document_id, audit_id):
         'escalation_model': CLASSIFICATION_MODELS['expensive']
     })
     
-    stage2_result = classify_with_bedrock_prompt(
+    stage2_result = classify_with_bedrock(
         image_base64, 
-        classifier_prompt_arn, 
+        CLASSIFIER_PROMPT,
         CLASSIFICATION_MODELS['expensive'],
         document_id,
         audit_id
@@ -232,32 +301,32 @@ def smart_classify_document(image_base64, document_id, audit_id):
     stage2_result['escalated'] = True
     return stage2_result
 
-def classify_with_bedrock_prompt(image_base64, prompt_arn, model_id, document_id, audit_id):
+def classify_with_bedrock(image_base64, prompt_content, model_id, document_id, audit_id):
     """
-    Classify document using Bedrock Prompt Management
+    Classify document using Bedrock
     """
     
     try:
         log_audit_event(audit_id, document_id, 'BEDROCK_CLASSIFICATION_STARTED', {
-            'prompt_arn': prompt_arn,
-            'model_id': model_id
+            'model_id': model_id,
+            'prompt_length': len(prompt_content)
         })
         
-        # Use Bedrock Prompt Management with Converse API
+        # Use Bedrock Converse API
         response = bedrock.converse(
-            modelId=CLASSIFICATION_MODELS['cheap'],  # Use actual model ID
+            modelId=model_id,
             messages=[
                 {
                     "role": "user",
                     "content": [
                         {
                             "image": {
-                                "format": "jpeg",
+                                "format": "png",  # Adjust based on your image format
                                 "source": {"bytes": base64.b64decode(image_base64)}
                             }
                         },
                         {
-                            "text": prompt_content  # Add the prompt as text
+                            "text": prompt_content
                         }
                     ]
                 }
@@ -277,6 +346,8 @@ def classify_with_bedrock_prompt(image_base64, prompt_arn, model_id, document_id
             'output_tokens': response['usage']['outputTokens']
         })
         
+        print(f"Classification response: {response_text[:200]}...")
+        
         # Parse JSON response
         try:
             classification_data = json.loads(response_text)
@@ -287,7 +358,7 @@ def classify_with_bedrock_prompt(image_base64, prompt_arn, model_id, document_id
                 'raw_response': response_text
             }
         except json.JSONDecodeError:
-            logger.warning("Classification returned non-JSON response")
+            print("Classification returned non-JSON response")
             return {
                 'document_type': 'OTHER',
                 'confidence': 0.3,
@@ -300,33 +371,36 @@ def classify_with_bedrock_prompt(image_base64, prompt_arn, model_id, document_id
         log_audit_event(audit_id, document_id, 'BEDROCK_CLASSIFICATION_FAILED', {'error': error_msg})
         raise Exception(error_msg)
 
-def extract_with_prompt_management(image_base64, document_type, document_id, audit_id):
+def extract_with_specialized_prompt(image_base64, document_type, document_id, audit_id):
     """
-    Extract document fields using specialized prompts from Bedrock Prompt Management
+    Extract document fields using specialized prompts based on document type
     """
     
-    # Load specialized prompt ARN for document type
-    extraction_prompt_arn = load_prompt_content(document_type)
+    # Get the appropriate extraction prompt
+    extraction_prompt = get_extraction_prompt(document_type)
     
     try:
         log_audit_event(audit_id, document_id, 'BEDROCK_EXTRACTION_STARTED', {
             'document_type': document_type,
-            'prompt_arn': extraction_prompt_arn,
-            'model_id': EXTRACTION_MODEL
+            'model_id': EXTRACTION_MODEL,
+            'prompt_length': len(extraction_prompt)
         })
         
-        # Use Bedrock Prompt Management for extraction
+        # Use Bedrock for extraction
         response = bedrock.converse(
-            modelId=extraction_prompt_arn,  # Use prompt ARN
+            modelId=EXTRACTION_MODEL,
             messages=[
                 {
                     "role": "user",
                     "content": [
                         {
                             "image": {
-                                "format": "jpeg",
+                                "format": "png",  # Adjust based on your image format
                                 "source": {"bytes": base64.b64decode(image_base64)}
                             }
+                        },
+                        {
+                            "text": extraction_prompt
                         }
                     ]
                 }
@@ -342,9 +416,10 @@ def extract_with_prompt_management(image_base64, document_type, document_id, aud
         log_audit_event(audit_id, document_id, 'BEDROCK_EXTRACTION_COMPLETED', {
             'response_length': len(response_text),
             'input_tokens': response['usage']['inputTokens'],
-            'output_tokens': response['usage']['outputTokens'],
-            'prompt_arn_used': extraction_prompt_arn
+            'output_tokens': response['usage']['outputTokens']
         })
+        
+        print(f"Extraction response: {response_text[:200]}...")
         
         # Parse extraction response
         try:
@@ -353,16 +428,14 @@ def extract_with_prompt_management(image_base64, document_type, document_id, aud
                 'extracted_fields': extraction_data.get('extracted_fields', {}),
                 'confidence': extraction_data.get('confidence', 0.5),
                 'extraction_notes': extraction_data.get('extraction_notes', ''),
-                'prompt_arn_used': extraction_prompt_arn,
                 'raw_response': response_text
             }
         except json.JSONDecodeError:
-            logger.warning("Extraction returned non-JSON response")
+            print("Extraction returned non-JSON response")
             return {
                 'extracted_fields': {},
                 'confidence': 0.3,
                 'extraction_notes': 'Response was not valid JSON',
-                'prompt_arn_used': extraction_prompt_arn,
                 'raw_response': response_text
             }
             
@@ -371,28 +444,21 @@ def extract_with_prompt_management(image_base64, document_type, document_id, aud
         log_audit_event(audit_id, document_id, 'BEDROCK_EXTRACTION_FAILED', {'error': error_msg})
         raise Exception(error_msg)
 
-def load_prompt_content(document_type):
+def get_extraction_prompt(document_type):
     """
-    Load prompt content from deployment artifacts (Infrastructure-as-Code approach)
+    Get the appropriate extraction prompt based on document type
     """
     
-    # Build path to prompt file
-    prompt_file_path = f"/opt/prompts/{document_type}_prompt_arn.txt"
+    # Map document types to their specialized prompts
+    prompt_mapping = {
+        'LETTER_OF_CREDIT': LETTER_OF_CREDIT_PROMPT,
+        # Add more document types as needed
+        # 'COMMERCIAL_INVOICE': COMMERCIAL_INVOICE_PROMPT,
+        # 'BILL_OF_LADING': BILL_OF_LADING_PROMPT,
+    }
     
-    try:
-        with open(prompt_file_path, 'r') as f:
-            prompt_content = f.read().strip()
-            logger.info(f"Loaded prompt content for {document_type}: {len(prompt_content)} characters")
-            return prompt_content
-    except FileNotFoundError:
-        logger.warning(f"No specialized prompt found for {document_type}, using generic")
-        # Fallback to generic prompt
-        try:
-            with open("/opt/prompts/generic_prompt_arn.txt", 'r') as f:
-                return f.read().strip()
-        except FileNotFoundError:
-            logger.error("No generic prompt found - deployment issue")
-            raise Exception(f"No prompt available for document type: {document_type}")
+    # Return specialized prompt or generic fallback
+    return prompt_mapping.get(document_type, LETTER_OF_CREDIT_PROMPT)  # Default to LC for demo
 
 def calculate_processing_costs(classification_result, extraction_result):
     """
@@ -467,12 +533,11 @@ def store_document_results_enhanced(document_id, bucket, key, result, audit_id):
             'extraction_confidence': result.get('extraction_confidence', 0.0),
             'extracted_fields': result.get('extracted_fields', {}),
             'extraction_notes': result.get('extraction_notes', ''),
-            'prompt_arn_used': result.get('prompt_arn_used'),
             'processing_costs': result.get('processing_costs', {}),
             'training_metadata': result.get('training_metadata', {}),
             'processing_metadata': {
                 'processor': 'enhanced-claude-vision-lambda',
-                'processing_strategy': 'two_stage_with_prompt_management',
+                'processing_strategy': 'two_stage_with_embedded_prompts',
                 'audit_id': audit_id
             },
             # TTL: 90 days from now
@@ -487,7 +552,7 @@ def store_document_results_enhanced(document_id, bucket, key, result, audit_id):
             'training_metadata_included': True
         })
         
-        logger.info(f"Stored enhanced results for document {document_id}")
+        print(f"Stored enhanced results for document {document_id}")
         
     except ClientError as e:
         error_msg = f"DynamoDB storage failed: {e.response['Error']['Message']}"
@@ -516,9 +581,9 @@ def log_audit_event(audit_id, document_id, event_type, event_data):
         }
         
         audit_table.put_item(Item=audit_record)
-        logger.info(f"Audit logged: {event_type} for {document_id}")
+        print(f"Audit logged: {event_type} for {document_id}")
         
     except Exception as e:
         # Don't fail the main process if audit logging fails
-        logger.error(f"Audit logging failed: {str(e)}")
+        print(f"Audit logging failed: {str(e)}")
         pass
