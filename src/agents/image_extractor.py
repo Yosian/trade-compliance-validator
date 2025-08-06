@@ -33,8 +33,8 @@ CLASSIFICATION_MODELS = {
 }
 EXTRACTION_MODEL = 'anthropic.claude-3-sonnet-20240229-v1:0'
 
-# Confidence threshold for classification escalation: if doc classification is not accurate enough
-# try more expensive model
+# Confidence threshold for classification escalation: if document classification is not accurate enough
+# try more expensive model to improve accuracy
 CLASSIFICATION_CONFIDENCE_THRESHOLD = Decimal('0.8')
 
 def convert_floats_to_decimal(obj):
@@ -63,6 +63,13 @@ try:
         LETTER_OF_CREDIT_PROMPT = f.read().strip()
 except FileNotFoundError:
     raise Exception("LC prompt file not found: src/prompts/LETTER_OF_CREDIT_V1_prompt_arn.txt")
+
+try:
+    with open('src/prompts/COMMERCIAL_INVOICE_prompt_arn.txt', 'r', encoding='utf-8') as f:
+        COMMERCIAL_INVOICE_PROMPT = f.read().strip()
+except FileNotFoundError:
+    raise Exception("Commercial Invoice prompt file not found: src/prompts/COMMERCIAL_INVOICE_prompt_arn.txt")
+
 
 def parse_claude_classification_response(response_text):
     """
@@ -177,65 +184,6 @@ def calculate_cost_savings(used_cheap_model, total_documents):
         'cost_savings_percentage': Decimal('0.0'),
         'optimization_used': False
     }
-
-# def process_document_enhanced(bucket, key, document_id, audit_id):
-#     """
-#     Enhanced document processing with two-stage classification and extraction
-#     """
-    
-#     try:
-#         # Download image from S3
-#         log_audit_event(audit_id, document_id, 'S3_DOWNLOAD_STARTED', {'bucket': bucket, 'key': key})
-        
-#         response = s3.get_object(Bucket=bucket, Key=key)
-#         image_data = response['Body'].read()
-#         image_base64 = base64.b64encode(image_data).decode('utf-8')
-        
-#         log_audit_event(audit_id, document_id, 'S3_DOWNLOAD_COMPLETED', {
-#             'image_size_bytes': len(image_data),
-#             'image_size_base64': len(image_base64)
-#         })
-        
-#         print(f"Downloaded image: {len(image_data)} bytes")
-        
-#         # Stage 1: Smart document classification (cost-optimized)
-#         classification_result = smart_classify_document(image_base64, document_id, audit_id)
-        
-#         # Stage 2: Specialized extraction based on document type
-#         extraction_result = extract_with_specialized_prompt(
-#             image_base64, 
-#             classification_result['document_type'], 
-#             document_id, 
-#             audit_id
-#         )
-        
-#         # Combine results with metadata for training
-#         combined_result = {
-#             'document_type': classification_result['document_type'],
-#             'classification_confidence': classification_result['confidence'],
-#             'classification_model_used': classification_result['model_used'],
-#             'classification_escalated': classification_result.get('escalated', False),
-#             'extracted_fields': extraction_result.get('extracted_fields', {}),
-#             'extraction_confidence': extraction_result.get('confidence', 0.0),
-#             'extraction_notes': extraction_result.get('extraction_notes', ''),
-#             'processing_costs': calculate_processing_costs(classification_result, extraction_result),
-#             'training_metadata': {
-#                 'image_quality_score': assess_image_quality(image_data),
-#                 'document_complexity_score': classification_result.get('complexity_score', 0.5),
-#                 'processing_timestamp': datetime.now(timezone.utc).isoformat(),
-#                 'models_used': {
-#                     'classification': classification_result['model_used'],
-#                     'extraction': EXTRACTION_MODEL
-#                 }
-#             }
-#         }
-        
-#         return combined_result
-        
-#     except ClientError as e:
-#         error_msg = f"S3 download failed: {e.response['Error']['Message']}"
-#         log_audit_event(audit_id, document_id, 'S3_DOWNLOAD_FAILED', {'error': error_msg})
-#         raise Exception(error_msg)
 
 def smart_classify_document(image_base64, document_id, audit_id):
     """
@@ -433,13 +381,16 @@ def get_extraction_prompt(document_type):
     # Map document types to their specialized prompts
     prompt_mapping = {
         'LETTER_OF_CREDIT': LETTER_OF_CREDIT_PROMPT,
+        'COMMERCIAL_INVOICE': COMMERCIAL_INVOICE_PROMPT,
         # Add more document types as needed
-        # 'COMMERCIAL_INVOICE': COMMERCIAL_INVOICE_PROMPT,
         # 'BILL_OF_LADING': BILL_OF_LADING_PROMPT,
     }
     
-    # Return specialized prompt or generic fallback
-    return prompt_mapping.get(document_type, LETTER_OF_CREDIT_PROMPT)  # Default to LC for demo
+    # Return specialized prompt or raise an error if unknown
+    if document_type in prompt_mapping:
+        return prompt_mapping[document_type]
+    else:
+        raise ValueError(f"No prompt found for document type: {document_type}")
 
 def extract_with_retry(image_base64, document_type, document_id, audit_id):
     """
