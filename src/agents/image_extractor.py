@@ -33,7 +33,8 @@ CLASSIFICATION_MODELS = {
 }
 EXTRACTION_MODEL = 'anthropic.claude-3-sonnet-20240229-v1:0'
 
-# Confidence threshold for classification escalation
+# Confidence threshold for classification escalation: if doc classification is not accurate enough
+# try more expensive model
 CLASSIFICATION_CONFIDENCE_THRESHOLD = Decimal('0.8')
 
 def convert_floats_to_decimal(obj):
