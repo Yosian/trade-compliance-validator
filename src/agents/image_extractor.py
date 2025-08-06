@@ -5,6 +5,8 @@ import uuid
 import os
 from datetime import datetime, timezone
 import logging
+import decimal
+
 from decimal import Decimal
 from botocore.exceptions import ClientError
 
@@ -57,6 +59,59 @@ try:
         LETTER_OF_CREDIT_PROMPT = f.read().strip()
 except FileNotFoundError:
     raise Exception("LC prompt file not found: src/prompts/LETTER_OF_CREDIT_V1_prompt_arn.txt")
+
+def parse_claude_classification_response(response_text):
+    """
+    Parse Claude's classification response into structured data
+    
+    This function is extracted for testing - it handles all the JSON parsing
+    edge cases that can break in production.
+    """
+    try:
+        classification_data = json.loads(response_text)
+        
+        # Safe confidence conversion with fallback
+        try:
+            confidence_value = classification_data.get('confidence', 0.5)
+            confidence = Decimal(str(confidence_value))
+            # Ensure confidence is between 0 and 1
+            if confidence < 0 or confidence > 1:
+                confidence = Decimal('0.5')
+        except (ValueError, TypeError, decimal.InvalidOperation):
+            # Handle cases like "very high", null, or invalid numbers
+            confidence = Decimal('0.3')  # Low confidence for invalid data
+        
+        # Safe complexity score conversion
+        try:
+            complexity_value = classification_data.get('complexity_score', 0.5)
+            complexity_score = Decimal(str(complexity_value))
+            if complexity_score < 0 or complexity_score > 1:
+                complexity_score = Decimal('0.5')
+        except (ValueError, TypeError, decimal.InvalidOperation):
+            complexity_score = Decimal('0.5')
+        
+        return {
+            'document_type': classification_data.get('document_type', 'OTHER'),
+            'confidence': confidence,
+            'complexity_score': complexity_score,
+            'raw_response': response_text
+        }
+    except json.JSONDecodeError:
+        print("Classification returned non-JSON response")
+        return {
+            'document_type': 'OTHER',
+            'confidence': Decimal('0.3'),
+            'complexity_score': Decimal('0.5'),
+            'raw_response': response_text
+        }
+    except Exception as e:
+        print(f"Error parsing classification response: {e}")
+        return {
+            'document_type': 'OTHER',
+            'confidence': Decimal('0.3'),
+            'complexity_score': Decimal('0.5'),
+            'raw_response': response_text
+        }
 
 
 def lambda_handler(event, context):
@@ -308,22 +363,7 @@ def classify_with_bedrock(image_base64, prompt_content, model_id, document_id, a
         print(f"Classification response: {response_text[:200]}...")
         
         # Parse JSON response
-        try:
-            classification_data = json.loads(response_text)
-            return {
-                'document_type': classification_data.get('document_type', 'OTHER'),
-                'confidence': Decimal(str(classification_data.get('confidence', 0.5))),
-                'complexity_score': Decimal(str(classification_data.get('complexity_score', 0.5))),
-                'raw_response': response_text
-            }
-        except json.JSONDecodeError:
-            print("Classification returned non-JSON response")
-            return {
-                'document_type': 'OTHER',
-                'confidence': Decimal('0.3'),
-                'complexity_score': Decimal('0.5'),
-                'raw_response': response_text
-            }
+        return parse_claude_classification_response(response_text)
             
     except ClientError as e:
         error_msg = f"Bedrock classification failed: {e.response['Error']['Message']}"
