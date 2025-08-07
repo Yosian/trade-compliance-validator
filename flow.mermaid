@@ -1,0 +1,41 @@
+graph TB
+    A[Document Upload] --> B[document-upload SQS Queue]
+    B --> C[file-selector Lambda]
+    
+    C --> D{File Type Router}
+    D -->|PNG/JPG| E[vision-processing Queue]
+    D -->|PDF| F[pdf-converter Queue]
+    D -->|TXT/DOC| G[doc-reader Queue]
+    
+    F --> H[pdf-to-png Lambda<br/>PyMuPDF Docker Layer]
+    H --> E
+    
+    E --> I[image-extractor Lambda<br/>Two-Stage AI Processing]
+    
+    I --> J{Confidence Check}
+    J -->|≥0.8| K[Claude Haiku<br/>Fast Classification]
+    J -->|<0.8| L[Claude Sonnet<br/>Deep Analysis]
+    
+    K --> M[Extraction Process]
+    L --> M
+    
+    M --> N{Quality Check}
+    N -->|Good Quality| O[Store Results]
+    N -->|Poor Quality| P[Retry Logic<br/>Max 2 Attempts]
+    P --> O
+    
+    O --> Q[DynamoDB Storage]
+    O --> R[S3 Audit Trail]
+    
+    S[evaluation-pipeline Lambda] --> Q
+    S --> T[Statistical Analysis<br/>Drift Detection<br/>Cost Optimization]
+    
+    U[fca-register-collector] --> V[Regulatory API Cache]
+    V --> Q
+    
+    %% Styling
+    style A fill:#e1f5fe
+    style I fill:#f3e5f5
+    style J fill:#fff3e0
+    style Q fill:#e8f5e8
+    style S fill:#fce4ec
