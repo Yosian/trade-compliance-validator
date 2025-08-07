@@ -33,8 +33,8 @@ CLASSIFICATION_MODELS = {
 }
 EXTRACTION_MODEL = 'anthropic.claude-3-sonnet-20240229-v1:0'
 
-# Confidence threshold for classification escalation: if document classification is not accurate enough
-# try more expensive model to improve accuracy
+# Confidence threshold for classification escalation: if document classification is not 
+# accurate enough try more expensive model to improve accuracy
 CLASSIFICATION_CONFIDENCE_THRESHOLD = Decimal('0.8')
 
 def convert_floats_to_decimal(obj):
@@ -159,31 +159,6 @@ def validate_confidence_score(raw_confidence):
     except (ValueError, TypeError, decimal.InvalidOperation):
         # Return safe middle value for invalid confidence
         return Decimal('0.5')
-
-def calculate_cost_savings(used_cheap_model, total_documents):
-    """
-    ADD THIS: Business intelligence for cost optimization reporting
-    
-    Show actual savings vs if all documents used expensive model
-    """
-    if used_cheap_model:
-        # Rough calculation - cheap model costs ~$0.003, expensive ~$0.018
-        expensive_cost = Decimal('0.018') * total_documents
-        cheap_cost = Decimal('0.003') * total_documents  
-        savings = expensive_cost - cheap_cost
-        savings_percentage = (savings / expensive_cost) * 100
-        
-        return {
-            'cost_savings_dollars': savings.quantize(Decimal('0.01')),
-            'cost_savings_percentage': savings_percentage.quantize(Decimal('0.1')),
-            'optimization_used': True
-        }
-    
-    return {
-        'cost_savings_dollars': Decimal('0.00'),
-        'cost_savings_percentage': Decimal('0.0'),
-        'optimization_used': False
-    }
 
 def smart_classify_document(image_base64, document_id, audit_id):
     """
