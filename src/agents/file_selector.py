@@ -1,3 +1,32 @@
+"""
+Intelligent Document Router - File Classification and Processing Pipeline Gateway
+
+This Lambda serves as the intelligent entry point for the trade document processing pipeline,
+implementing smart routing decisions based on file characteristics and document types.
+
+ROUTING INTELLIGENCE:
+- Images (PNG, JPG) → Direct vision processing (fastest path)
+- PDFs → PDF-to-PNG conversion with multi-page handling
+- Text documents → OCR-free text extraction pipeline
+- Extensible routing logic for new document formats
+
+PRODUCTION FEATURES:
+- Multi-source event handling (S3 triggers, SQS messages, direct invocation)
+- Comprehensive error recovery with dead letter queue integration
+- Structured logging for pipeline observability and debugging
+- File extension normalization and validation
+
+SCALABILITY DESIGN:
+Event-driven architecture enables independent scaling of each processing pipeline.
+SQS-based routing provides natural load balancing and failure isolation across
+document types and processing complexity levels.
+
+BUSINESS VALUE:
+Optimizes processing costs by routing documents to the most efficient pipeline
+(e.g., avoiding expensive PDF conversion for native images, bypassing OCR for
+text-based documents).
+"""
+
 import json
 import boto3
 from urllib.parse import unquote_plus
