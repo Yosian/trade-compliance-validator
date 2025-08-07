@@ -10,6 +10,42 @@ VISION_QUEUE_URL = 'https://sqs.us-east-1.amazonaws.com/864899848062/tdv-dev-vis
 DOC_READER_QUEUE_URL = 'https://sqs.us-east-1.amazonaws.com/864899848062/tdv-dev-doc-reader'
 PDF_CONVERTER_QUEUE_URL = 'https://sqs.us-east-1.amazonaws.com/864899848062/tdv-dev-pdf-converter'
 
+def determine_routing(file_extension, key):
+    """
+    Determine which processor should handle this file
+    
+    Returns: 'vision', 'doc_reader', 'pdf_converter', or 'unsupported'
+    """
+    
+    # Image files go directly to vision
+    if file_extension in ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'tiff']:
+        return 'vision'
+    
+    # PDF files need conversion to images first
+    elif file_extension == 'pdf':
+        return 'pdf_converter'
+    
+    # Text-based documents go to doc reader
+    elif file_extension in ['txt', 'doc', 'docx', 'rtf']:
+        return 'doc_reader'
+    
+    # Everything else is unsupported for now
+    else:
+        return 'unsupported'
+
+def get_target_queue(routing_decision):
+    """
+    Map routing decision to SQS queue URL
+    """
+    
+    queue_mapping = {
+        'vision': VISION_QUEUE_URL,
+        'doc_reader': DOC_READER_QUEUE_URL,
+        'pdf_converter': PDF_CONVERTER_QUEUE_URL
+    }
+    
+    return queue_mapping.get(routing_decision)
+
 def lambda_handler(event, context):
     """
     File Selector Lambda - Routes documents to appropriate processors
@@ -73,39 +109,3 @@ def lambda_handler(event, context):
                 'message': 'Failed to route file'
             })
         }
-
-def determine_routing(file_extension, key):
-    """
-    Determine which processor should handle this file
-    
-    Returns: 'vision', 'doc_reader', 'pdf_converter', or 'unsupported'
-    """
-    
-    # Image files go directly to vision
-    if file_extension in ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'tiff']:
-        return 'vision'
-    
-    # PDF files need conversion to images first
-    elif file_extension == 'pdf':
-        return 'pdf_converter'
-    
-    # Text-based documents go to doc reader
-    elif file_extension in ['txt', 'doc', 'docx', 'rtf']:
-        return 'doc_reader'
-    
-    # Everything else is unsupported for now
-    else:
-        return 'unsupported'
-
-def get_target_queue(routing_decision):
-    """
-    Map routing decision to SQS queue URL
-    """
-    
-    queue_mapping = {
-        'vision': VISION_QUEUE_URL,
-        'doc_reader': DOC_READER_QUEUE_URL,
-        'pdf_converter': PDF_CONVERTER_QUEUE_URL
-    }
-    
-    return queue_mapping.get(routing_decision)

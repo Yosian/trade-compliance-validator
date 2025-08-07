@@ -20,74 +20,6 @@ dynamodb = boto3.resource('dynamodb')
 VISION_QUEUE_URL = 'https://sqs.us-east-1.amazonaws.com/864899848062/tdv-dev-vision-processing'
 AUDIT_TABLE = 'tdv-dev-audit-trail-864899848062-us-east-1'
 
-def lambda_handler(event, context):
-    """
-    PDF to PNG Conversion Lambda
-    
-    Converts PDF documents to PNG images and forwards to vision processing
-    Uses PyMuPDF layer for efficient PDF processing
-    """
-    
-    audit_id = str(uuid.uuid4())
-    
-    try:
-        # Process each SQS message
-        for record in event['Records']:
-            message_body = json.loads(record['body'])
-            
-            # Extract file information
-            bucket = message_body['bucket']
-            key = message_body['key']
-            routing_decision = message_body.get('routing_decision', 'pdf_converter')
-            
-            logger.info(f"Processing PDF: {key} from bucket: {bucket}")
-            
-            # Log processing start
-            log_audit_event(audit_id, key, 'PDF_CONVERSION_STARTED', {
-                'bucket': bucket,
-                'key': key,
-                'lambda_request_id': context.aws_request_id
-            })
-            
-            # Convert PDF to PNG images
-            png_keys = convert_pdf_to_png(bucket, key, audit_id)
-            
-            # Forward each PNG to vision processing
-            for png_key in png_keys:
-                forward_to_vision_processing(bucket, png_key, key, audit_id)
-            
-            # Log successful completion
-            log_audit_event(audit_id, key, 'PDF_CONVERSION_COMPLETED', {
-                'pages_converted': len(png_keys),
-                'generated_images': png_keys
-            })
-            
-            logger.info(f"Successfully converted PDF {key} to {len(png_keys)} PNG images")
-        
-        return {
-            'statusCode': 200,
-            'body': json.dumps({
-                'message': 'PDF conversion completed successfully',
-                'audit_id': audit_id
-            })
-        }
-        
-    except Exception as e:
-        error_msg = str(e)
-        logger.error(f"Error converting PDF: {error_msg}")
-        
-        log_audit_event(audit_id, key if 'key' in locals() else 'unknown', 'PDF_CONVERSION_FAILED', {
-            'error': error_msg,
-            'error_type': type(e).__name__
-        })
-        
-        return {
-            'statusCode': 500,
-            'body': json.dumps({
-                'error': error_msg,
-                'audit_id': audit_id
-            })
-        }
 
 def convert_pdf_to_png(bucket, key, audit_id):
     """
@@ -240,3 +172,72 @@ def log_audit_event(audit_id, document_key, event_type, event_data):
         # Don't fail the main process if audit logging fails
         logger.warning(f"Audit logging failed: {str(e)}")
         pass
+
+def lambda_handler(event, context):
+    """
+    PDF to PNG Conversion Lambda
+    
+    Converts PDF documents to PNG images and forwards to vision processing
+    Uses PyMuPDF layer for efficient PDF processing
+    """
+    
+    audit_id = str(uuid.uuid4())
+    
+    try:
+        # Process each SQS message
+        for record in event['Records']:
+            message_body = json.loads(record['body'])
+            
+            # Extract file information
+            bucket = message_body['bucket']
+            key = message_body['key']
+            routing_decision = message_body.get('routing_decision', 'pdf_converter')
+            
+            logger.info(f"Processing PDF: {key} from bucket: {bucket}")
+            
+            # Log processing start
+            log_audit_event(audit_id, key, 'PDF_CONVERSION_STARTED', {
+                'bucket': bucket,
+                'key': key,
+                'lambda_request_id': context.aws_request_id
+            })
+            
+            # Convert PDF to PNG images
+            png_keys = convert_pdf_to_png(bucket, key, audit_id)
+            
+            # Forward each PNG to vision processing
+            for png_key in png_keys:
+                forward_to_vision_processing(bucket, png_key, key, audit_id)
+            
+            # Log successful completion
+            log_audit_event(audit_id, key, 'PDF_CONVERSION_COMPLETED', {
+                'pages_converted': len(png_keys),
+                'generated_images': png_keys
+            })
+            
+            logger.info(f"Successfully converted PDF {key} to {len(png_keys)} PNG images")
+        
+        return {
+            'statusCode': 200,
+            'body': json.dumps({
+                'message': 'PDF conversion completed successfully',
+                'audit_id': audit_id
+            })
+        }
+        
+    except Exception as e:
+        error_msg = str(e)
+        logger.error(f"Error converting PDF: {error_msg}")
+        
+        log_audit_event(audit_id, key if 'key' in locals() else 'unknown', 'PDF_CONVERSION_FAILED', {
+            'error': error_msg,
+            'error_type': type(e).__name__
+        })
+        
+        return {
+            'statusCode': 500,
+            'body': json.dumps({
+                'error': error_msg,
+                'audit_id': audit_id
+            })
+        }
